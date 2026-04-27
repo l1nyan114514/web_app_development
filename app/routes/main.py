@@ -1,17 +1,34 @@
 from flask import Blueprint, render_template
+from app.models.transaction import Transaction
+from app.models.fixed_deduction import FixedDeduction
+from datetime import datetime
 
 main_bp = Blueprint('main', __name__)
+
+def process_fixed_deductions():
+    """背景處理固定扣款邏輯，檢查所有設定，若符合本月且到期則自動扣款"""
+    today = datetime.now()
+    current_month = today.strftime('%Y-%m')
+    current_day = today.day
+    
+    deductions = FixedDeduction.get_all()
+    for d in deductions:
+        if d['last_processed_month'] != current_month and d['deduct_day'] <= current_day:
+            # 建立支出紀錄
+            Transaction.create('EXPENSE', d['amount'], d['category'], today.strftime('%Y-%m-%d'))
+            # 更新已處理月份
+            FixedDeduction.update_last_processed(d['id'], current_month)
 
 @main_bp.route('/', methods=['GET'])
 def index():
     """
     首頁路由
-    輸入：無
-    處理邏輯：
-        1. 檢查並觸發固定扣款背景新增邏輯，確保新扣款已過帳
-        2. 呼叫 Transaction.get_total_balance() 計算總餘額
-        3. 呼叫 Transaction.get_all() 獲取最近幾筆紀錄
-    輸出：渲染 templates/main/index.html，傳入餘額與紀錄清單以呈現儀表板
-    錯誤處理：若是初次使用無資料，顯示餘額為 0 與空白清單即可。
     """
-    pass
+    # 觸發固定扣款背景處理
+    process_fixed_deductions()
+    
+    # 取得最新資料
+    total_balance = Transaction.get_total_balance()
+    recent_transactions = Transaction.get_all()[:5]  # 取得最近5筆
+    
+    return render_template('main/index.html', total_balance=total_balance, transactions=recent_transactions)
